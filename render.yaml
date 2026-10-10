@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: casting-defect-detector
+    env: docker
+    plan: free
+    dockerfilePath: Dockerfile
+    envVars:
+      - key: MODEL_NAME
+        value: efficientnet_b0
+      - key: OUTPUT_DIR
+        value: outputs
