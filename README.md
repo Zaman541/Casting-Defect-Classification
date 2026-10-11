@@ -1,163 +1,301 @@
-# Visual Defect Detection System — Machine Learning Engineering (MLE) Assessment
+# Casting Defect Classification
 
-[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
-[![PyTorch](https://img.shields.io/badge/Framework-PyTorch-EE4C2C?logo=pytorch)](https://pytorch.org/)
-[![Docker](https://img.shields.io/badge/Container-Docker-2496ED?logo=docker)](https://www.docker.com/)
+Binary image classifier that labels industrial casting surfaces as **`ok`** or **`defective`**. The repo contains a reproducible training and evaluation pipeline, a comparison of two pretrained CNNs, an error analysis, and a live REST API.
 
-A production-ready deep learning system for automated manufacturing defect inspection on industrial casting products.
+Built as a machine learning engineering assessment (PyTorch, FastAPI, Docker, Render).
 
----
+**Live API:** https://classification-of-defective-mechanical.onrender.com/docs
 
-## 1. Executive Summary
+\---
 
-This project delivers an automated visual defect detection system that classifies industrial casting front surfaces into **Normal (`ok`)** and **Defective (`defective`)**.
+## 1\. Summary
 
-To satisfy the engineering discipline and compute constraints required by the MLE assessment, we implement, train, and compare two distinct architectures using transfer learning:
-1. **Baseline Model:** `MobileNetV3-Small` (~1.52M parameters) — optimized for low-latency edge deployment.
-2. **Production Model:** `EfficientNet-B0` (~4.01M parameters) — compound-scaled CNN with Squeeze-and-Excitation attention blocks.
+|Model|Role|Parameters|Test accuracy|Defective precision|Defective recall|Defective F1|Missed defects (FN)|False alarms (FP)|
+|-|-|-|-|-|-|-|-|-|
+|MobileNetV3-Small|Baseline|1,519,906|75.38%|0.99|0.60|0.74|47|1|
+|**EfficientNet-B0**|**Selected / deployed**|4,010,110|**97.95%**|**1.00**|**0.97**|**0.98**|**4**|**0**|
 
-### Key Results Summary (Evaluated on 195 Unseen Test Samples)
+* **Problem framing:** pass/fail inspection of casting images. A missed defect (false negative) is the costly error, so recall on the `defective` class is reported alongside accuracy.
+* **Selected model:** EfficientNet-B0, served by the API.
+* **Main finding from error analysis:** the remaining errors are low-margin predictions on parts whose defects are tiny at the 224x224 input size (see [Section 5](#5-evaluation-and-error-analysis)).
+* **Caveat:** one split, one seed, 195 test images. See [Limitations](#8-limitations).
 
-| Architecture | Parameters | Test Accuracy | Precision (Defective) | Recall (Defective) | F1-Score (Defective) | False Negatives (Missed) | False Positives (Yield Loss) |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **MobileNetV3-Small** (Baseline) | 1.52M | **75.38%** | 0.99 | 0.60 | 0.74 | 47 | 1 |
-| **EfficientNet-B0** (Selected) | 4.01M | **97.95%** | **1.00** | **0.97** | **0.98** | **4** | **0** |
+\---
 
----
+## 2\. Live Demo
 
-## 2. Live Deployment
 
-* **Live API URL:** `https://<YOUR-RENDER-URL>.onrender.com` *(Update with your deployed Render service URL)*
-* **Interactive Docs (Swagger UI):** `https://<YOUR-RENDER-URL>.onrender.com/docs`
-* **Health Check Endpoint:** `GET /`
-* **Inference Endpoint:** `POST /predict` (accepts `multipart/form-data` with an image file)
 
----
+The service runs on Render's **free plan, CPU only**, and spins down when idle, so the first request after a quiet period may be slow.
 
-## 3. Data Strategy & Preprocessing
 
-### Dataset Inspection & Framing
-* **Raw Dataset:** 1,300 high-resolution (512x512) images of industrial casting products.
-* **Class Imbalance:** 781 Defective (~60.1%) vs 519 Normal (~39.9%).
-* **Splitting Strategy:** A rigorous **stratified split** was applied to preserve class ratios:
-  * **Train:** 910 images (363 OK, 547 Defective) — 70%
-  * **Validation:** 195 images (78 OK, 117 Defective) — 15%
-  * **Test:** 195 images (78 OK, 117 Defective) — 15% (strictly unseen hold-out)
 
-### Handling Class Imbalance
-Rather than relying on naive oversampling or synthetic artifacts, we implemented dynamic **inverse-frequency class weighting** directly in the training loss:
-$$\text{weight}_c = \frac{N_{\text{total}}}{C \times N_c}$$
-$$\text{weight}_{\text{OK}} = 1.2534, \quad \text{weight}_{\text{Defective}} = 0.8318$$
-This penalizes mistakes on the minority normal class more heavily, preventing trivial majority-class collapse.
+**Link:** [https://classification-of-defective-mechanical.onrender.com/docs](https://classification-of-defective-mechanical.onrender.com/docs)
 
-### Data Augmentation Pipeline
-Because casting components undergo slight rotational misalignment and variable factory lighting, the training pipeline applies on-the-fly augmentations:
-* Random Horizontal and Vertical Flips ($p = 0.5$)
-* Random Rotations ($\pm 15^\circ$)
-* Affine translations ($\pm 5\%$) and slight scale variations
-* Color Jitter (Brightness $\pm 0.2$, Contrast $\pm 0.2$)
-* ImageNet channel normalization ($\mu=[0.485, 0.456, 0.406], \sigma=[0.229, 0.224, 0.225]$)
 
----
 
-## 4. Model Selection & Transfer Learning Strategy
 
-Both models are pre-trained on ImageNet-1k and adapt a two-phase transfer learning approach:
 
-1. **Phase 1 (Feature Extraction):** The convolutional backbones are frozen. Only the freshly initialized classification head is trained for the first 4 epochs with an initial learning rate $\eta = 10^{-3}$ using the AdamW optimizer.
-2. **Phase 2 (Discriminative Fine-Tuning):** The backbone layers are unfrozen with discriminative learning rates:
-   * Backbone LR: $1 \times 10^{-5}$ (preserves pre-trained generic features and prevents catastrophic forgetting)
-   * Head LR: $1 \times 10^{-3}$ (adapts to casting-specific defect patterns)
-   * `ReduceLROnPlateau` scheduler scales down LR on validation loss plateau.
+Response format (values illustrative):
 
----
 
-## 5. Evaluation & Deep Error Analysis
 
-### Confusion Matrices & Training Curves
-| Model | Confusion Matrix | Training Curves |
-| :--- | :---: | :---: |
-| **MobileNetV3-Small** | ![MobileNet CM](outputs/mobilenetv3_small/confusion_matrix.png) | ![MobileNet Curves](outputs/mobilenetv3_small/training_curves.png) |
-| **EfficientNet-B0** | ![EfficientNet CM](outputs/efficientnet_b0/confusion_matrix.png) | ![EfficientNet Curves](outputs/efficientnet_b0/training_curves.png) |
-
-### Engineering Reasoning & Trade-off Analysis
-
-1. **Why did MobileNetV3-Small fail to catch defects (47 False Negatives)?**
-   * MobileNetV3-Small uses aggressive depthwise separable downsampling to achieve ultra-fast mobile inference. Casting defects (micro-porosity, hairline cracks, pinholes) are subtle, localized surface anomalies. MobileNet's spatial downsampling destroyed these fine details, causing it to default to predicting "OK" when uncertain.
-2. **Why did EfficientNet-B0 excel (97.95% accuracy)?**
-   * EfficientNet's compound scaling and **Squeeze-and-Excitation (SE) attention blocks** allow the network to dynamically recalibrate channel feature responses, giving higher activation weights to localized abnormal textures.
-3. **Production Safety & Failure Mode Considerations:**
-   * In manufacturing inspection, **False Negatives are catastrophic** (shipping defective parts to customers), whereas **False Positives only lead to manual reinspection (yield loss)**.
-   * EfficientNet achieved **0 False Positives** and reduced False Negatives to just **4 samples**.
-   * In actual factory deployment, we recommend adjusting the decision threshold from `0.5` to `0.35` on the defect probability to achieve $100\%$ Recall.
-
----
-
-## 6. Project Structure
-
-```
-Assessment_SparkAI/
-├── api/
-│   └── app.py                     # FastAPI REST API serving EfficientNet-B0
-├── src/
-│   ├── config.py                  # Centralized dataclass configurations
-│   ├── data.py                    # Dataset discovery, stratified split, augmentations, weights
-│   ├── models.py                  # Model architecture factory & transfer learning
-│   ├── train.py                   # Two-phase training loop with checkpointing
-│   ├── evaluate.py                # Test set evaluation, metrics, and error analysis
-│   └── inference.py               # Standalone single-image inference logic
-├── outputs/                       # Saved weights (.pth), plots, and JSON metrics
-│   ├── efficientnet_b0/
-│   │   ├── best_model.pth         # Trained production weights (16 MB)
-│   │   ├── confusion_matrix.png
-│   │   ├── test_metrics.json
-│   │   └── training_curves.png
-│   └── mobilenetv3_small/
-│       ├── best_model.pth         # Baseline weights (6 MB)
-│       └── ...
-├── Dockerfile                     # Production container image
-├── requirements.txt               # Pinned dependencies
-├── render.yaml                    # Infrastructure-as-code for Render deployment
-└── README.md                      # Project documentation
+```json
+{
+  "predicted\_class": "defective",
+  "confidence": 0.9731,
+  "probabilities": { "ok": 0.0269, "defective": 0.9731 }
+}
 ```
 
----
+\---
 
-## 7. How to Reproduce & Run Locally
+## 3\. Problem and Dataset
 
-### 1. Setup Environment
-```bash
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
+### Why this problem and dataset
 
-pip install -r requirements.txt
+Casting inspection is a realistic computer-vision task with a clear deployment story (accept/reject a part). The dataset is a good fit for an engineering exercise for three reasons:
+
+* **Non-trivial:** defects are small, localized surface anomalies on a visually uniform part, which is harder than generic object classification.
+* **Moderately imbalanced:** about 60/40, so imbalance handling and error-type reasoning are both relevant.
+* **Compute-friendly:** 1,300 images are enough for transfer learning but small enough to train each model in about a minute on a free Kaggle GPU.
+
+Dataset: the raw (non-augmented) 512x512 version of the Kaggle *Real-life industrial dataset of casting product*. It is **not included** in this repository.
+
+### Dataset inspection
+
+|Property|Value|
+|-|-|
+|Images|1,300 JPEG, 512x512|
+|Label format|Folder name: `ok\_front` = 0, `def\_front` = 1 (one label per image, no bounding boxes or masks)|
+|Class distribution|781 defective (60.1%), 519 ok (39.9%)|
+|Appearance|Grayscale-looking photos of the same part type from a top-down view; converted to 3-channel RGB for the pretrained networks|
+
+Expected layout:
+
+```
+casting\_512x512/casting\_512x512/
+├── def\_front/   # 781 images (label 1)
+└── ok\_front/    # 519 images (label 0)
 ```
 
-### 2. Run Single-Image Inference
-```bash
-python -m src.inference --model efficientnet_b0 --image path/to/sample.jpeg
+Visible variation between images (seen in the saved error plots): part position, tilt, scale, background brightness and cast shadows. Defects themselves are small relative to the part.
+
+### Split
+
+Stratified 70 / 15 / 15, `random\_state=42`. The test set is not used for training, early stopping or checkpoint selection.
+
+|Split|Images|ok|defective|
+|-|-|-|-|
+|Train|910|363|547|
+|Validation|195|78|117|
+|Test|195|78|117|
+
+\---
+
+## 4\. Data Preparation, Models and Training
+
+### Preprocessing and augmentation
+
+All images are resized to **224x224** and normalized with ImageNet statistics. Training-only augmentation:
+
+* Random horizontal and vertical flips (p = 0.5)
+* Random rotation (±15°) and small affine shifts (translation up to 5%, scale 0.95–1.05) to mimic part misalignment
+* Color jitter (brightness 0.2, contrast 0.2, saturation 0.1) for lighting variation
+
+### Class imbalance
+
+Inverse-frequency class weights, computed from the training labels, are passed to `CrossEntropyLoss`:
+
+```
+weight\_c = N\_total / (num\_classes \* N\_c)
+weight\_ok = 1.2534,  weight\_defective = 0.8318
 ```
 
-### 3. Launch the REST API Locally
-```bash
-uvicorn api.app:app --host 0.0.0.0 --port 8000
-```
-Open your browser at `http://localhost:8000/docs` to test inference interactively.
+This balances the loss across the two classes. It does not by itself favor catching defects; that trade-off is handled by the decision threshold (see [Section 5](#improvement-hypotheses)).
 
-### 4. Run via Docker
+### Label quality
+
+No systematic label audit was performed. Labels come from the dataset's folder structure and were used as given. The few remaining misclassified images were inspected visually (Section 5); two of the four EfficientNet-B0 misses show no defect that is visible at 224x224, so a closer look at full resolution is listed as a follow-up.
+
+### Models
+
+|Model|Role|New head|Parameters|Checkpoint|
+|-|-|-|-|-|
+|MobileNetV3-Small|Baseline|Linear(576→1024) → Hardswish → Dropout(0.3) → Linear(1024→2)|1,519,906|\~6 MB|
+|EfficientNet-B0|Selected|Dropout(0.3) → Linear(1280→2)|4,010,110|\~16 MB|
+
+**Why transfer learning:** with 910 training images, training a CNN from scratch would be data-starved; ImageNet features give a strong starting point for surface texture and edges. Both models use torchvision ImageNet-1k weights. Note that the baseline is therefore a small pretrained network, not a from-scratch CNN.
+
+**Why these two:** both are small enough to train on free resources and to serve on CPU. MobileNetV3-Small represents the lowest-latency end; EfficientNet-B0 is a stronger but still light model. Larger backbones were not tried, in line with the compute constraint.
+
+### Training strategy (identical for both models)
+
+1. **Phase 1, head only (epochs 1–4):** backbone frozen, AdamW, lr = 1e-3.
+2. **Phase 2, fine-tuning (epoch 5 onward):** backbone unfrozen with discriminative learning rates (backbone 1e-5, head 1e-3); optimizer and scheduler rebuilt at the transition.
+
+|Setting|Value|
+|-|-|
+|Epochs / batch size|12 / 64|
+|Optimizer|AdamW, weight decay 1e-4|
+|Scheduler|ReduceLROnPlateau (factor 0.1, patience 3) on val loss|
+|Early stopping|patience 7 on val loss|
+|Checkpoint|best validation loss|
+|Loss|class-weighted cross-entropy|
+
+`src/config.py` defaults to 25 epochs and batch size 32; the reported runs override these via CLI. The LR scheduler never triggered, so the head LR stayed at 1e-3.
+
+### Hyperparameter tuning
+
+No systematic hyperparameter search was run. Values were chosen in advance using standard fine-tuning practice (small backbone LR, larger head LR, unfreeze after a few head-only epochs) and kept identical across both models so the comparison isolates the architecture. A small sweep over learning rates, unfreeze epoch and epoch count is the first planned follow-up; each run takes about a minute.
+
+### Compute awareness
+
+* Trained on a free Kaggle notebook (NVIDIA Tesla T4): about 5–6 seconds per epoch, roughly one minute per model.
+* 224x224 input and sub-5M-parameter models keep training and CPU inference cheap.
+* The API runs on Render's free CPU tier. Inference latency has not been benchmarked.
+
+\---
+
+## 5\. Evaluation and Error Analysis
+
+### Test-set results (195 images)
+
+||MobileNetV3-Small|EfficientNet-B0|
+|-|-|-|
+|Accuracy|75.38%|97.95%|
+|Macro F1|0.75|0.98|
+|`ok` precision / recall / F1|0.62 / 0.99 / 0.76|0.95 / 1.00 / 0.97|
+|`defective` precision / recall / F1|0.99 / 0.60 / 0.74|1.00 / 0.97 / 0.98|
+|Confusion matrix (TN / FP / FN / TP)|77 / 1 / 47 / 70|78 / 0 / 4 / 113|
+|Best epoch (val loss)|10|12|
+|Best val loss / val accuracy|0.5127 / 72.82%|0.1458 / 94.87%|
+
+
+
+
+
+### Error analysis
+
+`src/evaluate.py` saves the misclassified test images with the model's confidence. Reviewed: all 4 EfficientNet-B0 errors, the 8 most confident of MobileNetV3-Small's 47 false negatives, and its single false positive. Images are shown at the 224x224 size the models receive.
+
+**EfficientNet-B0: false negatives (4 of 117 defective parts)**
+
+
+
+* The model's confidence in "ok" on the four missed parts is 78.4%, 69.7%, 54.1% and 53.1%, so P(defective) is roughly 0.22–0.47. All four are close to the decision boundary rather than confidently wrong.
+* Two of the four show only a tiny dark mark on the rim (a small pit-like spot and a small notch) that covers just a few pixels at 224x224. The other two show no defect that is visible at this resolution.
+
+**MobileNetV3-Small: false negatives (47 of 117) and false positive (1 of 78)**
+
+
+
+* The eight most confident misses are all predicted "ok" with 98.5–99.7% confidence on parts that look normal at this scale. Errors this confident and uniform, together with `ok` recall of 0.99 and `defective` recall of 0.60, point to a systematic bias toward "ok" rather than to individually hard cases. This is consistent with the unstable validation curve noted below.
+* The single false positive is borderline (50.8% defective) and shows a tilted view with a cast shadow.
+
+
+
+**Reading the MobileNetV3-Small result.** Its training accuracy reached about 92% while validation accuracy stayed erratic (41–73%, below the 60% majority-class rate for the first five epochs) and validation loss did not decrease smoothly. A model that fits the training defects but behaves this way on validation suggests a training or normalization issue rather than a pure capacity limit. One untested hypothesis is a train/eval BatchNorm mismatch: the frozen backbone still runs BatchNorm in training mode, and MobileNetV3's low BN momentum means its running statistics barely adapt. Until this is tested, the baseline numbers describe this recipe as run, not the architecture's ceiling.
+
+### Failure modes observed
+
+1. **Tiny, localized defects.** Pit-like marks and rim notches occupy only a few pixels after downsampling 512 → 224.
+2. **Low-margin decisions.** Every EfficientNet-B0 error and the MobileNetV3-Small false positive sit near P = 0.5.
+3. **Nuisance variation.** Tilt, scale, background brightness and shadows vary across images, which makes subtle defects harder to separate from normal variation.
+
+### Improvement hypotheses
+
+|#|Hypothesis|How to test|
+|-|-|-|
+|1|A lower decision threshold recovers some missed defects at a modest false-alarm cost|Choose the threshold from the validation precision/recall curve (not the test set), then report test results once|
+|2|Higher input resolution or a crop around the part helps with tiny defects|Retrain at 320x320 or 384x384 and compare defect recall|
+|3|The MobileNetV3-Small gap is mostly a BatchNorm issue|Keep the frozen backbone in `eval()` mode during phase 1 and rerun|
+|4|Some misses are label noise or very subtle defects|Review the remaining errors at full 512x512 resolution|
+
+\---
+
+## 6\. Inference and Deployment
+
+The API (`api/app.py`) loads the selected model once at startup and reuses `get\_eval\_transforms` from `src/data.py`, so serving preprocessing is identical to evaluation preprocessing.
+
+|Endpoint|Method|Description|
+|-|-|-|
+|`/`|GET|Health check: status, model name, device|
+|`/predict`|POST|Multipart upload (field `file`, JPEG or PNG); returns `predicted\_class`, `confidence`, `probabilities`. Other content types return HTTP 400|
+
+The model is chosen by the `MODEL\_NAME` environment variable (default `efficientnet\_b0`; `OUTPUT\_DIR` defaults to `outputs`).
+
+**Docker** (`python:3.10-slim`, bundles `src/`, `api/` and the trained weights):
+
 ```bash
 docker build -t casting-defect-detector .
-docker run -p 8000:8000 -e MODEL_NAME=efficientnet_b0 casting-defect-detector
+docker run -p 8000:8000 -e MODEL\_NAME=efficientnet\_b0 casting-defect-detector
 ```
 
----
+**Render:** `render.yaml` deploys the Docker image on the free plan.
 
-## 8. Scaling to Higher Compute (Interview Discussion)
+\---
 
-If extended compute and production infrastructure were available:
-1. **Multi-Task & Segmentation:** Train a Mask R-CNN or YOLOv8-seg model to not only classify the defect, but also provide localized bounding boxes and segmentation masks for defect severity quantification.
-2. **Synthetic Defect Augmentation:** Use Diffusion-based generative models (ControlNet) to synthesize diverse industrial defects on pristine parts, reducing real defect collection cost.
-3. **Hardware-Specific Optimization:** Export the model to **ONNX Runtime** or **TensorRT** with INT8 quantization, achieving sub-5ms latency on production edge devices (e.g., NVIDIA Jetson).
+## 7\. Project Structure and How to Run
+
+```
+.
+├── api/app.py                  # FastAPI service
+├── src/
+│   ├── config.py               # Dataclass configs: data, model, training
+│   ├── data.py                 # Discovery, stratified split, augmentation, class weights, DataLoaders
+│   ├── models.py               # Model factory, freeze/unfreeze, discriminative LR groups
+│   ├── train.py                # Two-phase training, early stopping, checkpointing
+│   ├── evaluate.py             # Test metrics, confusion matrix, curves, misclassification plots
+│   └── inference.py            # Single-image inference (Python API + CLI)
+├── outputs/
+│   ├── efficientnet\_b0/        # weights, metrics JSON, plots, training history
+│   └── mobilenetv3\_small/
+├── classification-using-mobilenet-and-efficientnet.ipynb   # Kaggle notebook used to run training/evaluation
+├── Dockerfile
+├── render.yaml
+└── requirements.txt            # minimum versions (>=), not exact pins
+```
+
+Data processing, training, evaluation and inference live in separate modules. Paths, model choice and hyperparameters are configurable through the dataclasses in `src/config.py` and CLI flags, and the pipeline uses Python `logging` with file and console handlers.
+
+```bash
+python -m venv venv \&\& source venv/bin/activate    # Windows: .\\venv\\Scripts\\activate
+pip install -r requirements.txt
+
+# Train (use --model mobilenetv3\_small for the baseline)
+python -m src.train --model efficientnet\_b0 \\
+    --data\_dir casting\_512x512/casting\_512x512 \\
+    --epochs 12 --batch\_size 64 --lr 0.001 --backbone\_lr 0.00001 --unfreeze\_after 4
+
+# Evaluate (metrics JSON, confusion matrix, curves, misclassification plots)
+python -m src.evaluate --model efficientnet\_b0 --data\_dir casting\_512x512/casting\_512x512
+
+# Single-image inference (the CLI default model is mobilenetv3\_small, so pass --model)
+python -m src.inference --model efficientnet\_b0 --image path/to/sample.jpeg
+
+# Run the API locally
+uvicorn api.app:app --host 0.0.0.0 --port 8000
+```
+
+\---
+
+## 8\. Limitations
+
+* **Small evaluation set.** One split, one seed, 195 test images. Approximate 95% Wilson intervals for EfficientNet-B0: accuracy about 95–99%, defective recall about 91–99% (113/117). The gap to MobileNetV3-Small is clearly larger than this noise, but small differences would not be.
+* **No hyperparameter search**, and EfficientNet-B0's validation loss was still falling at epoch 12 (best checkpoint = final epoch), so training was capped rather than converged.
+* **Baseline not tuned** and not a from-scratch CNN (see Section 5).
+* **Resolution.** Downsampling 512 → 224 likely hides the smallest defects.
+* **Narrow domain.** One part type and imaging setup; other parts, cameras or lighting are untested.
+* **Default 0.5 threshold** and **no label audit.**
+
+\---
+
+## 9\. With More Compute
+
+* **Training:** multiple seeds and k-fold cross-validation for mean ± std, a proper hyperparameter search, longer schedules, and higher input resolution (320–512) or tiled inference to keep small defects visible.
+* **Models:** larger backbones (EfficientNet-B3/B4, ConvNeXt) and self-supervised or in-domain pretraining; ensembling and test-time augmentation.
+* **Data:** more labeled defects, hard-negative mining from the near-boundary cases, and synthetic defect augmentation.
+* **Task:** move from image-level labels to detection or segmentation (e.g. YOLOv8-seg, Mask R-CNN) to localize defects and measure severity.
+* **Deployment:** export to ONNX Runtime or TensorRT with INT8 quantization for edge inference, and add latency benchmarking and monitoring.
+
