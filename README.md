@@ -45,10 +45,8 @@ Response format and values:
   "predicted\\\_class": "defective",
   "confidence": 0.9405,
   "probabilities": { 
-
-&#x09;"ok": 0.0595, 
-
-&#x09;"defective": 0.9405 }
+    "ok": 0.0595, 
+    "defective": 0.9405 }
 }
 
 
@@ -57,10 +55,8 @@ Response format and values:
 "predicted\\\_class": "defective",
 "confidence": 0.8107,
 "probabilities": { 
-
-&#x09;"ok": 0.01893, 
-
-&#x09;"defective": 0.8107 }
+  "ok": 0.01893, 
+  "defective": 0.8107 }
 }
 
 
@@ -69,10 +65,8 @@ Response format and values:
 "predicted\\\_class": "ok",
 "confidence": 0.9891,
 "probabilities": { 
-
-&#x09;"defective": 0.0.0109, 
-
-&#x09;"ok": 0.9405 }
+  "defective": 0.0109, 
+  "ok": 0.9405 }
 }
 ```
 
