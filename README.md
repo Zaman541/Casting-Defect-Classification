@@ -28,7 +28,7 @@ Built as a machine learning engineering assessment (PyTorch, FastAPI, Docker, Re
 
 The service runs on Render's **free plan, CPU only**, and spins down when idle, so the first request after a quiet period may be slow.
 
-After opening the link, click **POST** and then **Try it out** and upload a JPEG or PNG image of a casting part. The API returns a JSON object with the predicted class, confidence, and class probabilities.
+After opening the link, click **"POST"** and then click **"Try it out"** and upload a JPEG or PNG image of a casting part. The API returns a JSON object with the predicted class, confidence, and class probabilities.
 
 **Link:** [https://classification-of-defective-mechanical.onrender.com/docs](https://classification-of-defective-mechanical.onrender.com/docs)
 
