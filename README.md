@@ -36,15 +36,43 @@ After opening the link, click **"POST"** and then click **"Try it out"** and upl
 
 
 
-Response format (values illustrative):
+Response format and values:
 
 
 
 ```json
 {
-  "predicted\_class": "defective",
-  "confidence": 0.9731,
-  "probabilities": { "ok": 0.0269, "defective": 0.9731 }
+  "predicted\\\_class": "defective",
+  "confidence": 0.9405,
+  "probabilities": { 
+
+&#x09;"ok": 0.0595, 
+
+&#x09;"defective": 0.9405 }
+}
+
+
+
+{
+"predicted\\\_class": "defective",
+"confidence": 0.8107,
+"probabilities": { 
+
+&#x09;"ok": 0.01893, 
+
+&#x09;"defective": 0.8107 }
+}
+
+
+
+{
+"predicted\\\_class": "ok",
+"confidence": 0.9891,
+"probabilities": { 
+
+&#x09;"defective": 0.0.0109, 
+
+&#x09;"ok": 0.9405 }
 }
 ```
 
@@ -67,23 +95,23 @@ Dataset: the raw (non-augmented) 512x512 version of the Kaggle *Real-life indust
 |Property|Value|
 |-|-|
 |Images|1,300 JPEG, 512x512|
-|Label format|Folder name: `ok\_front` = 0, `def\_front` = 1 (one label per image, no bounding boxes or masks)|
+|Label format|Folder name: `ok\\\_front` = 0, `def\\\_front` = 1 (one label per image, no bounding boxes or masks)|
 |Class distribution|781 defective (60.1%), 519 ok (39.9%)|
 |Appearance|Grayscale-looking photos of the same part type from a top-down view; converted to 3-channel RGB for the pretrained networks|
 
 Expected layout:
 
 ```
-casting\_512x512/casting\_512x512/
-├── def\_front/   # 781 images (label 1)
-└── ok\_front/    # 519 images (label 0)
+casting\\\_512x512/casting\\\_512x512/
+├── def\\\_front/   # 781 images (label 1)
+└── ok\\\_front/    # 519 images (label 0)
 ```
 
 Visible variation between images (seen in the saved error plots): part position, tilt, scale, background brightness and cast shadows. Defects themselves are small relative to the part.
 
 ### Split
 
-Stratified 70 / 15 / 15, `random\_state=42`. The test set is not used for training, early stopping or checkpoint selection.
+Stratified 70 / 15 / 15, `random\\\_state=42`. The test set is not used for training, early stopping or checkpoint selection.
 
 |Split|Images|ok|defective|
 |-|-|-|-|
@@ -108,8 +136,8 @@ All images are resized to **224x224** and normalized with ImageNet statistics. T
 Inverse-frequency class weights, computed from the training labels, are passed to `CrossEntropyLoss`:
 
 ```
-weight\_c = N\_total / (num\_classes \* N\_c)
-weight\_ok = 1.2534,  weight\_defective = 0.8318
+weight\\\_c = N\\\_total / (num\\\_classes \\\* N\\\_c)
+weight\\\_ok = 1.2534,  weight\\\_defective = 0.8318
 ```
 
 This balances the loss across the two classes. It does not by itself favor catching defects; that trade-off is handled by the decision threshold (see [Section 5](#improvement-hypotheses)).
@@ -216,20 +244,20 @@ No systematic hyperparameter search was run. Values were chosen in advance using
 
 ## 6\. Inference and Deployment
 
-The API (`api/app.py`) loads the selected model once at startup and reuses `get\_eval\_transforms` from `src/data.py`, so serving preprocessing is identical to evaluation preprocessing.
+The API (`api/app.py`) loads the selected model once at startup and reuses `get\\\_eval\\\_transforms` from `src/data.py`, so serving preprocessing is identical to evaluation preprocessing.
 
 |Endpoint|Method|Description|
 |-|-|-|
 |`/`|GET|Health check: status, model name, device|
-|`/predict`|POST|Multipart upload (field `file`, JPEG or PNG); returns `predicted\_class`, `confidence`, `probabilities`. Other content types return HTTP 400|
+|`/predict`|POST|Multipart upload (field `file`, JPEG or PNG); returns `predicted\\\_class`, `confidence`, `probabilities`. Other content types return HTTP 400|
 
-The model is chosen by the `MODEL\_NAME` environment variable (default `efficientnet\_b0`; `OUTPUT\_DIR` defaults to `outputs`).
+The model is chosen by the `MODEL\\\_NAME` environment variable (default `efficientnet\\\_b0`; `OUTPUT\\\_DIR` defaults to `outputs`).
 
 **Docker** (`python:3.10-slim`, bundles `src/`, `api/` and the trained weights):
 
 ```bash
 docker build -t casting-defect-detector .
-docker run -p 8000:8000 -e MODEL\_NAME=efficientnet\_b0 casting-defect-detector
+docker run -p 8000:8000 -e MODEL\\\_NAME=efficientnet\\\_b0 casting-defect-detector
 ```
 
 **Render:** `render.yaml` deploys the Docker image on the free plan.
@@ -249,8 +277,8 @@ docker run -p 8000:8000 -e MODEL\_NAME=efficientnet\_b0 casting-defect-detector
 │   ├── evaluate.py             # Test metrics, confusion matrix, curves, misclassification plots
 │   └── inference.py            # Single-image inference (Python API + CLI)
 ├── outputs/
-│   ├── efficientnet\_b0/        # weights, metrics JSON, plots, training history
-│   └── mobilenetv3\_small/
+│   ├── efficientnet\\\_b0/        # weights, metrics JSON, plots, training history
+│   └── mobilenetv3\\\_small/
 ├── classification-using-mobilenet-and-efficientnet.ipynb   # Kaggle notebook used to run training/evaluation
 ├── Dockerfile
 ├── render.yaml
@@ -260,19 +288,19 @@ docker run -p 8000:8000 -e MODEL\_NAME=efficientnet\_b0 casting-defect-detector
 Data processing, training, evaluation and inference live in separate modules. Paths, model choice and hyperparameters are configurable through the dataclasses in `src/config.py` and CLI flags, and the pipeline uses Python `logging` with file and console handlers.
 
 ```bash
-python -m venv venv \&\& source venv/bin/activate    # Windows: .\\venv\\Scripts\\activate
+python -m venv venv \\\&\\\& source venv/bin/activate    # Windows: .\\\\venv\\\\Scripts\\\\activate
 pip install -r requirements.txt
 
-# Train (use --model mobilenetv3\_small for the baseline)
-python -m src.train --model efficientnet\_b0 \\
-    --data\_dir casting\_512x512/casting\_512x512 \\
-    --epochs 12 --batch\_size 64 --lr 0.001 --backbone\_lr 0.00001 --unfreeze\_after 4
+# Train (use --model mobilenetv3\\\_small for the baseline)
+python -m src.train --model efficientnet\\\_b0 \\\\
+    --data\\\_dir casting\\\_512x512/casting\\\_512x512 \\\\
+    --epochs 12 --batch\\\_size 64 --lr 0.001 --backbone\\\_lr 0.00001 --unfreeze\\\_after 4
 
 # Evaluate (metrics JSON, confusion matrix, curves, misclassification plots)
-python -m src.evaluate --model efficientnet\_b0 --data\_dir casting\_512x512/casting\_512x512
+python -m src.evaluate --model efficientnet\\\_b0 --data\\\_dir casting\\\_512x512/casting\\\_512x512
 
-# Single-image inference (the CLI default model is mobilenetv3\_small, so pass --model)
-python -m src.inference --model efficientnet\_b0 --image path/to/sample.jpeg
+# Single-image inference (the CLI default model is mobilenetv3\\\_small, so pass --model)
+python -m src.inference --model efficientnet\\\_b0 --image path/to/sample.jpeg
 
 # Run the API locally
 uvicorn api.app:app --host 0.0.0.0 --port 8000
